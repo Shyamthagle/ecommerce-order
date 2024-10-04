@@ -10,14 +10,16 @@ import {
     NoFieldsProvidedException,
 } from './exceptions/order.exceptions';
 import { DeleteResponse, OrderResponse } from './interface/order.interface';
+
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 
 @Injectable()
 export class OrderService {
     constructor(
         @InjectRepository(Order)
         private readonly orderRepository: Repository<Order>,
-        // @Inject(CACHE_MANAGER) private cacheManager: Cache
+        @Inject(CACHE_MANAGER) private cacheManager: Cache
     ) { }
 
     async createOrder(orderItems: Order): Promise<OrderResponse> {
@@ -35,21 +37,34 @@ export class OrderService {
 
     async getOrders(): Promise<OrderResponse> {
         try {
+            const cacheKey = 'orders-cache';
 
+            const cachedData = await this.cacheManager.get<string>(cacheKey);
+
+            if (cachedData) {
+                const cachedOrders = JSON.parse(cachedData);
+                return {
+                    success: true,
+                    message: 'Orders retrieved from cache successfully',
+                    count: cachedOrders.count,
+                    data: cachedOrders.data,
+                };
+            }
 
             const [data, count] = await this.orderRepository.findAndCount();
+
+            await this.cacheManager.set(cacheKey, JSON.stringify({ data, count }));
             return {
                 success: true,
                 message: 'Orders retrieved successfully',
                 count: count,
                 data: data,
-            }
-
-
+            };
         } catch (error) {
-            throw new Error(error.message);
+            throw new Error(`Failed to retrieve orders: ${error.message}`);
         }
     }
+
 
     async getProductById(orderId: number): Promise<OrderResponse> {
         try {

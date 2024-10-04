@@ -8,7 +8,10 @@ import { CacheModule } from '@nestjs/cache-manager';
 
 @Module({
   imports: [
-    // CacheModule.register(),
+    CacheModule.register({
+      ttl: 0,
+      max: 10,
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
