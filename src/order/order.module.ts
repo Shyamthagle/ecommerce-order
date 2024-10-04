@@ -6,7 +6,10 @@ import { OrderController } from './order.controller';
 import { CacheModule } from '@nestjs/cache-manager';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Order]), CacheModule.register()],
+  imports: [
+    CacheModule.register(),
+    TypeOrmModule.forFeature([Order]),
+  ],
   controllers: [OrderController],
   providers: [OrderService],
 })

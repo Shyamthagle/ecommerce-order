@@ -6,27 +6,21 @@ export class OrderNotFoundException extends HttpException {
     }
 }
 
-export class EntityNotFoundException extends HttpException {
-    constructor(entityName: string, id: number) {
-        super(`${entityName} with ID ${id} not found`, HttpStatus.NOT_FOUND);
-    }
-}
-
 export class OrderCreationException extends HttpException {
-    constructor() {
-        super('Failed to create order', HttpStatus.INTERNAL_SERVER_ERROR);
+    constructor(message: string) {
+        super(`Failed to create order: ${message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }
 
 export class OrderUpdateException extends HttpException {
-    constructor() {
-        super('Failed to update order', HttpStatus.INTERNAL_SERVER_ERROR);
+    constructor(message: string) {
+        super(`Failed to update order: ${message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }
 
 export class OrderDeletionException extends HttpException {
-    constructor() {
-        super('Failed to delete order', HttpStatus.INTERNAL_SERVER_ERROR);
+    constructor(message: string) {
+        super(`Failed to delete order: ${message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }
 

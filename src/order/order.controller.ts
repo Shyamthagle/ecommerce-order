@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Param, Delete, Query, Patch, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Delete, Patch, ParseIntPipe } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { Order } from './entity/order.entity';
 import { DeleteResponse, OrderResponse } from './interface/order.interface';
+
 
 @Controller('orders')
 export class OrderController {
@@ -19,8 +20,8 @@ export class OrderController {
   }
 
   @Get(':id')
-  getProductById(@Param('id', ParseIntPipe) id: number): Promise<OrderResponse> {
-    return this.orderService.getProductById(id);
+  getOrderById(@Param('id', ParseIntPipe) id: number): Promise<OrderResponse> {
+    return this.orderService.getOrderById(id);
   }
 
   @Patch(':id')

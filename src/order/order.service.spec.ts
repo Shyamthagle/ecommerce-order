@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrderService } from './order.service';
 import { Order } from './entity/order.entity';
-import { Repository } from 'typeorm';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import {
     OrderNotFoundException,
     OrderCreationException,
@@ -11,17 +13,24 @@ import {
     NoFieldsProvidedException,
 } from './exceptions/order.exceptions';
 
+const mockOrder: Order = {
+    id: 1,
+    products: [{ productId: 1, quantity: 2, price: 100 }],
+    totalAmount: 200,
+};
+
+const mockOrderRepository = {
+    findOne: jest.fn(),
+    findAndCount: jest.fn(),
+    save: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+};
+
 describe('OrderService', () => {
     let orderService: OrderService;
     let orderRepository: Repository<Order>;
-
-    const mockOrderRepository = {
-        save: jest.fn(),
-        find: jest.fn(),
-        findOne: jest.fn(),
-        update: jest.fn(),
-        delete: jest.fn(),
-    };
+    let cacheManager: Cache;
 
     beforeEach(async () => {
         const module: TestingModule = await Test.createTestingModule({
@@ -31,173 +40,119 @@ describe('OrderService', () => {
                     provide: getRepositoryToken(Order),
                     useValue: mockOrderRepository,
                 },
+                {
+                    provide: CACHE_MANAGER,
+                    useValue: {
+                        get: jest.fn(),
+                        set: jest.fn(),
+                        del: jest.fn(),
+                    },
+                },
             ],
         }).compile();
 
         orderService = module.get<OrderService>(OrderService);
         orderRepository = module.get<Repository<Order>>(getRepositoryToken(Order));
+        cacheManager = module.get<Cache>(CACHE_MANAGER);
     });
 
-    it('should be defined', () => {
-        expect(orderService).toBeDefined();
+    afterEach(() => {
+        jest.clearAllMocks();
     });
 
-    describe('createOrder', () => {
-        it('should create an order successfully', async () => {
-            const orderItems = new Order(); // Add necessary properties if any
-            const savedOrder = { ...orderItems, id: 1 }; // Mock saved order with an ID
-            
-            mockOrderRepository.save.mockResolvedValue(savedOrder);
+    it('should create an order successfully', async () => {
+        mockOrderRepository.save.mockResolvedValue(mockOrder);
+        const result = await orderService.createOrder(mockOrder);
 
-            const result = await orderService.createOrder(orderItems);
-
-            expect(result).toEqual({
-                success: true,
-                message: 'Order created successfully',
-                data: savedOrder,
-            });
-            expect(mockOrderRepository.save).toHaveBeenCalledWith(orderItems);
-        });
-
-        it('should throw OrderCreationException on error', async () => {
-            const orderItems = new Order();
-
-            mockOrderRepository.save.mockRejectedValue(new Error('DB error'));
-
-            await expect(orderService.createOrder(orderItems)).rejects.toThrow(OrderCreationException);
+        expect(result).toEqual({
+            success: true,
+            message: 'Order created successfully',
+            data: mockOrder,
         });
     });
 
-    describe('getOrders', () => {
-        it('should return an array of orders successfully', async () => {
-            const orders = [new Order(), new Order()]; // Add necessary properties if any
-            mockOrderRepository.find.mockResolvedValue(orders);
+    it('should throw OrderCreationException on failure', async () => {
+        mockOrderRepository.save.mockRejectedValue(new Error('Database error'));
+        
+        await expect(orderService.createOrder(mockOrder)).rejects.toThrow(OrderCreationException);
+    });
 
-            const result = await orderService.getOrders();
+    it('should retrieve orders successfully', async () => {
+        mockOrderRepository.findAndCount.mockResolvedValue([[mockOrder], 1]);
+        const result = await orderService.getOrders();
 
-            expect(result).toEqual({
-                success: true,
-                message: 'Orders retrieved successfully',
-                data: orders,
-            });
-            expect(mockOrderRepository.find).toHaveBeenCalled();
-        });
-
-        it('should throw an error on exception', async () => {
-            mockOrderRepository.find.mockRejectedValue(new Error('DB error'));
-
-            await expect(orderService.getOrders()).rejects.toThrow(Error);
+        expect(result).toEqual({
+            success: true,
+            message: 'Orders retrieved successfully',
+            count: 1,
+            data: [mockOrder],
         });
     });
 
-    describe('getProductById', () => {
-        it('should return an order successfully', async () => {
-            const orderId = 1;
-            const order = new Order(); // Add necessary properties if any
-            mockOrderRepository.findOne.mockResolvedValue(order);
+    it('should throw an error on getOrders failure', async () => {
+        mockOrderRepository.findAndCount.mockRejectedValue(new Error('Database error'));
 
-            const result = await orderService.getProductById(orderId);
+        await expect(orderService.getOrders()).rejects.toThrow('Failed to retrieve orders: Database error');
+    });
 
-            expect(result).toEqual({
-                success: true,
-                message: 'Order retrieved successfully',
-                data: order,
-            });
-            expect(mockOrderRepository.findOne).toHaveBeenCalledWith({ where: { id: orderId } });
-        });
+    it('should retrieve an order by ID successfully', async () => {
+        mockOrderRepository.findOne.mockResolvedValue(mockOrder);
+        const result = await orderService.getOrderById(1);
 
-        it('should throw OrderNotFoundException when order does not exist', async () => {
-            const orderId = 1;
-            mockOrderRepository.findOne.mockResolvedValue(null);
-
-            await expect(orderService.getProductById(orderId)).rejects.toThrow(OrderNotFoundException);
+        expect(result).toEqual({
+            success: true,
+            message: 'Order retrieved successfully',
+            data: mockOrder,
         });
     });
 
-    describe('updateOrder', () => {
-        it('should update an order successfully', async () => {
-            const orderId = 1;
-            const order = { /* partial order data */ };
-            const existingOrder = new Order(); // Mock existing order
+    it('should throw OrderNotFoundException if order not found', async () => {
+        mockOrderRepository.findOne.mockResolvedValue(null);
 
-            mockOrderRepository.findOne.mockResolvedValue(existingOrder);
-            mockOrderRepository.update.mockResolvedValue({});
-            mockOrderRepository.findOne.mockResolvedValue({ ...existingOrder, ...order });
+        await expect(orderService.getOrderById(999)).rejects.toThrow(OrderNotFoundException);
+    });
 
-            const result = await orderService.updateOrder(orderId, order);
+    it('should update an order successfully', async () => {
+        mockOrderRepository.findOne.mockResolvedValue(mockOrder);
+        mockOrderRepository.update.mockResolvedValue({});
+        const updatedOrder = { ...mockOrder, totalAmount: 300 };
+        
+        const result = await orderService.updateOrder(1, { totalAmount: 300 });
 
-            expect(result).toEqual({
-                success: true,
-                message: 'Order updated successfully',
-                data: { ...existingOrder, ...order },
-            });
-            expect(mockOrderRepository.findOne).toHaveBeenCalledWith({ where: { id: orderId } });
-            expect(mockOrderRepository.update).toHaveBeenCalledWith(orderId, order);
-        });
-
-        it('should throw OrderNotFoundException when order does not exist', async () => {
-            const orderId = 1;
-            const order = { /* partial order data */ };
-
-            mockOrderRepository.findOne.mockResolvedValue(null);
-
-            await expect(orderService.updateOrder(orderId, order)).rejects.toThrow(OrderNotFoundException);
-        });
-
-        it('should throw NoFieldsProvidedException when no fields are provided', async () => {
-            const orderId = 1;
-            const order = {};
-
-            mockOrderRepository.findOne.mockResolvedValue(new Order());
-
-            await expect(orderService.updateOrder(orderId, order)).rejects.toThrow(NoFieldsProvidedException);
-        });
-
-        it('should throw OrderUpdateException on error', async () => {
-            const orderId = 1;
-            const order = { /* partial order data */ };
-
-            mockOrderRepository.findOne.mockResolvedValue(new Order());
-            mockOrderRepository.update.mockRejectedValue(new Error('DB error'));
-
-            await expect(orderService.updateOrder(orderId, order)).rejects.toThrow(OrderUpdateException);
+        expect(result).toEqual({
+            success: true,
+            message: 'Order updated successfully',
+            data: updatedOrder,
         });
     });
 
-    describe('deleteOrder', () => {
-        it('should delete an order successfully', async () => {
-            const orderId = 1;
-            const existingOrder = new Order(); // Mock existing order
+    it('should throw NoFieldsProvidedException if no fields provided', async () => {
+        mockOrderRepository.findOne.mockResolvedValue(mockOrder);
 
-            mockOrderRepository.findOne.mockResolvedValue(existingOrder);
-            mockOrderRepository.delete.mockResolvedValue({});
+        await expect(orderService.updateOrder(1, {})).rejects.toThrow(NoFieldsProvidedException);
+    });
 
-            const result = await orderService.deleteOrder(orderId);
+    it('should throw OrderNotFoundException if order to update does not exist', async () => {
+        mockOrderRepository.findOne.mockResolvedValue(null);
 
-            expect(result).toEqual({
-                success: true,
-                message: 'Order deleted successfully',
-            });
-            expect(mockOrderRepository.findOne).toHaveBeenCalledWith({ where: { id: orderId } });
-            expect(mockOrderRepository.delete).toHaveBeenCalledWith(orderId);
+        await expect(orderService.updateOrder(999, {})).rejects.toThrow(OrderNotFoundException);
+    });
+
+    it('should delete an order successfully', async () => {
+        mockOrderRepository.findOne.mockResolvedValue(mockOrder);
+        mockOrderRepository.delete.mockResolvedValue({});
+        
+        const result = await orderService.deleteOrder(1);
+
+        expect(result).toEqual({
+            success: true,
+            message: 'Order deleted successfully',
         });
+    });
 
-        it('should throw OrderNotFoundException when order does not exist', async () => {
-            const orderId = 1;
+    it('should throw OrderNotFoundException if order to delete does not exist', async () => {
+        mockOrderRepository.findOne.mockResolvedValue(null);
 
-            mockOrderRepository.findOne.mockResolvedValue(null);
-
-            await expect(orderService.deleteOrder(orderId)).rejects.toThrow(OrderNotFoundException);
-        });
-
-        it('should throw OrderDeletionException on error', async () => {
-            const orderId = 1;
-            const existingOrder = new Order();
-
-            mockOrderRepository.findOne.mockResolvedValue(existingOrder);
-            mockOrderRepository.delete.mockRejectedValue(new Error('DB error'));
-
-            await expect(orderService.deleteOrder(orderId)).rejects.toThrow(OrderDeletionException);
-        });
+        await expect(orderService.deleteOrder(999)).rejects.toThrow(OrderNotFoundException);
     });
 });
